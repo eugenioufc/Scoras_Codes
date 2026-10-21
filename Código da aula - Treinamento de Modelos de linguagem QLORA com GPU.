@@ -13,6 +13,9 @@ if os.path.exists(cache_dir):
 #check local GPU name and available CUDA version
 !nvidia-smi
 
+# check your GPU name
+!powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object Name"
+
 # Conferindo if BitsAndBits is available, GPU=name, python_versin, torch_version
 import os, random, torch, platform
 import numpy as np
