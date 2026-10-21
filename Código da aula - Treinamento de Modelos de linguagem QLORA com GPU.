@@ -1,3 +1,4 @@
+# JUPYTER NOTEBOOK 
 # 1 dependencia
 !pip install transformers[torch] scikit-learn accelerate
 
