@@ -40,9 +40,10 @@ res2 = dyn_graph.invoke({"tema": "Startups, IA, LAnggraph", "modo_debug": True},
 
 res2b = dyn_graph.invoke(Command(resume="seguir"), config=cfg2)
 print("Concluiu. Texto (amostra):")
-print(res2b["texto"][:350], "...")
+print(res2b["texto"][:450], "...")
 
 ----------------------------------------------------------------------------------------
 Concluiu. Texto (amostra):
-#Startups são empresas jovens e ágeis que buscam escalar rapidamente soluções inovadoras, geralmente apoiadas por investidores de risco.
-#Inteligência Artificial (IA) fornece as tecnologias de aprendizado de máquina e processamento de linguagem natural que permitem a automação
+#Startups são empresas emergentes que buscam crescer rápido, geralmente com modelos de negócio inovadores e financiamento de investidores‑anjos ou venture capital.
+#Inteligência Artificial (IA) refere‑se a sistemas computacionais capazes de aprender, raciocinar e tomar decisões a partir de grandes volumes de dados, automatizando tarefas complexas
+#LangGraph é uma biblioteca de código aberto que facilita a criação de fluxos de trabalho (graph‑ba ...
