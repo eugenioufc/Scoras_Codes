@@ -1,0 +1,552 @@
+pip -q install langgraph langchain langchain-core langchain-groq groq
+import os
+import getpass
+
+if not os.environ.get("GROQ_API_KEY"):
+    os.environ["GROQ_API_KEY"] = getpass.getpass("Digite sua GROQ_API_KEY: ")
+print("✅ GROQ_API_KEY configurada!")
+#2) Imports
+#Groq SDK: streaming token a token.
+#ChatGroq (LangChain): integração com LangGraph.
+#LangGraph: grafos + checkpoints + interrupções.
+#Também usamos:
+
+#MemorySaver para checkpoints (necessário para breakpoints, interrupções e time travel);
+#interrupt e Command para pausar e retomar.
+
+from typing import TypedDict, Literal
+
+from groq import Groq
+
+from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt, Command
+def make_llm(temperature: float = 0.7) -> ChatGroq:
+    return ChatGroq(
+        model="openai/gpt-oss-120b",
+        temperature=temperature,
+    )
+
+llm = make_llm()
+llm
+client = Groq()
+completion = client.chat.completions.create(
+    model="openai/gpt-oss-120b",
+    messages=[
+        {"role": "system", "content": "Responda em PT-BR, com clareza e didática"},
+        {"role": "user", "content": "Explique o que é streaming em LLM e suas utilidades"},
+        
+
+            
+    ],
+    temperature=0.9,
+    max_completion_tokens=400,
+    top_p=1,
+    reasoning_effort="medium",
+    stream=True,
+)
+for chunk in completion:
+     print(chunk.choices[0].delta.content or "", end="", flush=True)
+print()
+class StudyState(TypedDict, total=False):
+    topic: str
+    resumo: str
+    pergunta: str
+
+def node_resumo(state: StudyState) -> StudyState:
+    topic = state.get("topic", "assunto não informado")
+    resp = llm.invoke([
+        SystemMessage(content="Você cria conteúdo didático em PT-BR."),
+        HumanMessage(content=f"Faça um resumo bem curto (6-8 linhas) sobre: {topic}.")
+    ])
+    return {"resumo": resp.content}
+
+def node_pergunta(state: StudyState) -> StudyState:
+    resp = llm.invoke([
+        SystemMessage(content="Você cria conteúdo didático em PT-BR."),
+        HumanMessage(content=(
+            "Crie 1 pergunta conceitual (com resposta curta) baseada no resumo abaixo:\n\n"
+            f"{state.get('resumo','')}"
+        ))
+    ])
+    return {"pergunta": resp.content}
+
+builder = StateGraph(StudyState)
+builder.add_node("resumo", node_resumo)
+builder.add_node("pergunta", node_pergunta)
+builder.add_edge(START, "resumo")
+builder.add_edge("resumo", "pergunta")
+builder.add_edge("pergunta", END)
+
+study_graph = builder.compile()
+study_graph
+
+inputs = {"topic": "Breakpoints e depuração no LangGraph"}
+
+for event in study_graph.stream(inputs, stream_mode="updates", ):
+    print(event)
+for event in study_graph.stream(inputs, stream_mode="values"):
+    print(event)
+class PublishState(TypedDict, total=False):
+    tema: str
+    rascunho: str
+    aprovado: bool
+    publicado: str
+
+def node_gerar_rascunho(state: PublishState) -> PublishState:
+    tema = state.get("tema", "tema não informado")
+    resp = llm.invoke([
+        SystemMessage(content="Escreva em PT-BR, tom neutro e didático."),
+        HumanMessage(content=(
+            f"Crie um rascunho curto (máx 12 linhas) de uma prática usada em sobre: {tema}.\n"
+            "Inclua: definição, exemplo e um alerta de erro comum."
+        ))
+    ])
+    return {"rascunho": resp.content}
+
+def node_aprovacao(state: PublishState) -> Command[Literal["publicar", "cancelar"]]:
+    payload = {
+        "pergunta": "Você aprova o rascunho para publicação?",
+        "rascunho": state.get("rascunho", "")
+    }
+    decisao = interrupt(payload)  # PAUSA AQUI
+
+    if decisao is True:
+        return Command(goto="publicar", update={"aprovado": True})
+    return Command(goto="cancelar", update={"aprovado": False})
+
+def node_publicar(state: PublishState) -> PublishState:
+    texto = state.get("rascunho", "")
+    return {"publicado": "✅ PUBLICADO (simulação)\n\n" + texto}
+
+def node_cancelar(state: PublishState) -> PublishState:
+    return {"publicado": "❌ Cancelado: o rascunho não foi aprovado."}
+
+pub_builder = StateGraph(PublishState)
+pub_builder.add_node("gerar_rascunho", node_gerar_rascunho)
+pub_builder.add_node("aprovacao", node_aprovacao)
+pub_builder.add_node("publicar", node_publicar)
+pub_builder.add_node("cancelar", node_cancelar)
+
+pub_builder.add_edge(START, "gerar_rascunho")
+pub_builder.add_edge("gerar_rascunho", "aprovacao")
+pub_builder.add_edge("publicar", END)
+pub_builder.add_edge("cancelar", END)
+
+pub_checkpointer = MemorySaver()
+pub_graph = pub_builder.compile(checkpointer=pub_checkpointer)
+pub_graph
+config = {"configurable": {"thread_id": "pub-01"}}
+
+result = pub_graph.invoke({"tema": "Príncipios básicos da computação quântica"}, config=config)
+print("Interrupção recebida:")
+print(result.get("__interrupt__"))
+#APROVACAO HUMANA
+final = pub_graph.invoke(Command(resume=True), config=config)
+print(final["publicado"])
+config2 = {"configurable": {"thread_id": "pub-02"}}
+
+pub_graph.invoke({"tema": "Quando usar ferramentas em agentes"}, config=config2)
+final2 = pub_graph.invoke(Command(resume=False), config=config2)
+print(final2["publicado"])
+# 2. Definição do Estado
+class PublishState(TypedDict, total=False):
+  tema: str
+  rascunho: str
+  aprovado: bool
+  publicado: str
+
+
+# 3. Nós
+def node_gerar_rascunho(state: PublishState) -> PublishState:
+  tema = state.get("tema", "tema não informado")
+  resp = llm.invoke([
+      SystemMessage(content="Escreva em PT-BR, tom neutro e didático e prático, se possível."),
+      HumanMessage(
+          content=(
+              f"Crie um rascunho curto (máx 12 linhas) de um texto educativo"
+              f" sobre: {tema}.\nInclua: definição, exemplo e um alerta de erro"
+              " comum."
+          )
+      ),
+  ])
+  return {"rascunho": resp.content}
+
+
+def node_aprovacao(state: PublishState) -> Command[Literal["publicar", "cancelar"]]:
+  payload = {
+      "pergunta": "Você aprova o rascunho para publicação?",
+      "rascunho": state.get("rascunho", ""),
+  }
+  decisao = interrupt(payload)  # PAUSA AQUI
+
+  if decisao is True:
+    return Command(goto="publicar", update={"aprovado": True})
+  return Command(goto="cancelar", update={"aprovado": False})
+
+
+def node_publicar(state: PublishState) -> PublishState:
+  texto = state.get("rascunho", "")
+  return {"publicado": "✅ PUBLICADO (simulação)\n\n" + texto}
+
+
+def node_cancelar(state: PublishState) -> PublishState:
+  return {"publicado": "❌ Cancelado: o rascunho não foi aprovado."}
+
+
+# 4. Construção e Compilação correta do Grafo
+pub_builder = StateGraph(PublishState)
+pub_builder.add_node("gerar_rascunho", node_gerar_rascunho)
+pub_builder.add_node("aprovacao", node_aprovacao)
+pub_builder.add_node("publicar", node_publicar)
+pub_builder.add_node("cancelar", node_cancelar)
+
+pub_builder.add_edge(START, "gerar_rascunho")
+pub_builder.add_edge("gerar_rascunho", "aprovacao")
+pub_builder.add_edge("publicar", END)
+pub_builder.add_edge("cancelar", END)
+
+pub_checkpointer = MemorySaver()
+pub_graph = pub_builder.compile(checkpointer=pub_checkpointer)
+
+# ==========================================
+# COMO EXECUTAR (Lidando com o Interrupt)
+# ==========================================
+config = {"configurable": {"thread_id": "1"}}
+
+# 1ª Execução: Vai gerar o rascunho e pausar na aprovação
+print("--- Iniciando o Grafo ---")
+events = pub_graph.stream(
+    {"tema": "Breakpoints e depuração no LangGraph"}, config
+)
+for event in events:
+  print(event)
+
+# 2ª Retomada: Enviando a decisão humana (True para aprovar, False para cancelar)
+print("\n--- Retomando após a aprovação humana ---")
+for event in pub_graph.stream(Command(resume=True), config):
+  print(event)
+config = {"configurable": {"thread_id": "pub-01"}}
+
+result = pub_graph.invoke({"tema": "Como pensar em estado no LangGraph"}, config=config)
+print("Interrupção recebida:")
+print(result.get("__interrupt__"))
+#B3) Retomando com rejeição (resume=False)
+
+config2 = {"configurable": {"thread_id": "pub-02"}}
+
+pub_graph.invoke({"tema": "Quando usar ferramentas em agentes"}, config=config2)
+final2 = pub_graph.invoke(Command(resume=False), config=config2)
+print(final2["publicado"])
+#PARTE C: Breakpoints (estaticos)
+class DebugState(TypedDict, total=False):
+    assunto: str
+    outline: str
+    quiz: str
+
+def node_outline(state: DebugState) -> DebugState:
+    assunto = state.get("assunto", "assunto")
+    resp = llm.invoke([
+        SystemMessage(content="Crie conteúdo em PT-BR, objetivo."),
+        HumanMessage(content=f"Crie um outline com 4 tópicos sobre: {assunto}.")
+    ])
+    return {"outline": resp.content}
+
+def node_quiz(state: DebugState) -> DebugState:
+    resp = llm.invoke([
+        SystemMessage(content="Crie conteúdo em PT-BR, objetivo."),
+        HumanMessage(content=(
+            "Crie 2 perguntas de múltipla escolha baseadas no outline abaixo:\n\n"
+            f"{state.get('outline','')}\n\n"
+            "Não precisa gabarito."
+        ))
+    ])
+    return {"quiz": resp.content}
+
+dbg_builder = StateGraph(DebugState)
+dbg_builder.add_node("outline", node_outline)
+dbg_builder.add_node("quiz", node_quiz)
+dbg_builder.add_edge(START, "outline")
+dbg_builder.add_edge("outline", "quiz")
+dbg_builder.add_edge("quiz", END)
+
+dbg_checkpointer = MemorySaver()
+dbg_graph = dbg_builder.compile(checkpointer=dbg_checkpointer, interrupt_before=["quiz"])
+dbg_graph
+dbg_config = {"configurable": {"thread_id": "dbg-01"}}
+
+partial = dbg_graph.invoke({"assunto": "Streaming vs updates vs values no LangGraph"}, config=dbg_config)
+print("Parou no breakpoint. Estado parcial:")
+print(partial)
+
+print("\nContinuando...")
+complete = dbg_graph.invoke(None, config=dbg_config)
+print("\nEstado final:")
+print(complete)
+#Parte D — Breakpoints dinâmicos
+class DynBPState(TypedDict, total=False):
+    tema: str
+    texto: str
+    modo_debug: bool
+
+def node_gerar_texto(state: DynBPState) -> DynBPState:
+    tema = state.get("tema", "tema")
+    resp = llm.invoke([
+        SystemMessage(content="Escreva em PT-BR."),
+        HumanMessage(content=f"Escreva uma explicação em até 10 linhas sobre: {tema}.")
+    ])
+    return {"texto": resp.content}
+
+def node_pausa_condicional(state: DynBPState) -> DynBPState:
+    if state.get("modo_debug"):
+        interrupt({
+            "motivo": "modo_debug ligado",
+            "amostra_texto": state.get("texto", "")[:250]
+        })
+        return {}
+
+    # Heurística extra: se ficar muito grande, também pausa
+    if len(state.get("texto", "")) > 900:
+        interrupt({"motivo": "texto longo demais", "tamanho": len(state.get("texto",""))})
+    return {}
+
+dyn_builder = StateGraph(DynBPState)
+dyn_builder.add_node("gerar_texto", node_gerar_texto)
+dyn_builder.add_node("pausa", node_pausa_condicional)
+dyn_builder.add_edge(START, "gerar_texto")
+dyn_builder.add_edge("gerar_texto", "pausa")
+dyn_builder.add_edge("pausa", END)
+
+dyn_checkpointer = MemorySaver()
+dyn_graph = dyn_builder.compile(checkpointer=dyn_checkpointer)
+dyn_graph
+#D1) Sem pausa (modo_debug=False)
+cfg = {"configurable": {"thread_id": "dyn-01"}}
+res = dyn_graph.invoke({"tema": "Quais são os príncipios básicos da computação quântica?", "modo_debug": False}, config=cfg)
+print("OK. Não pausou.\n")
+print(res["texto"][:500], "...")
+#D2) Com pausa (modo_debug=True) e retomada
+cfg2 = {"configurable": {"thread_id": "dyn-02"}}
+res2 = dyn_graph.invoke({"tema": "Ciência básica da computação quântica", "modo_debug": True}, config=cfg2)
+
+print("Pausou? Payload:")
+print(res2.get("__interrupt__"))
+
+print("\nRetomando...")
+res2b = dyn_graph.invoke(Command(resume="seguir"), config=cfg2)
+print("Concluiu. Texto (amostra):")
+print(res2b["texto"][:350], "...")
+#Parte E — Editando o estado (feedback humano)
+class FeedbackState(TypedDict, total=False):
+    tema: str
+    nivel: str
+    roteiro: str
+    versao_final: str
+
+def node_planejar(state: FeedbackState) -> FeedbackState:
+    tema = state.get("tema", "tema")
+    nivel = state.get("nivel", "iniciante")
+    resp = llm.invoke([
+        SystemMessage(content="Escreva em PT-BR, bem prático."),
+        HumanMessage(content=(
+            f"Crie um roteiro em 5 tópicos para idéias de criações de Startups {tema}. "
+            f"Nível: {nivel}. Inclua 1 exemplo prático."
+        ))
+    ])
+    return {"roteiro": resp.content}
+
+def node_pedir_feedback(state: FeedbackState) -> FeedbackState:
+    ajuste = interrupt({
+        "pergunta": "Deseja ajustar o nível? (iniciante/intermediário/avançado) ou deixe em branco para manter.",
+        "nivel_atual": state.get("nivel", "iniciante")
+    })
+    if isinstance(ajuste, str) and ajuste.strip():
+        return {"nivel": ajuste.strip()}
+    return {}
+
+def node_finalizar(state: FeedbackState) -> FeedbackState:
+    resp = llm.invoke([
+        SystemMessage(content="Escreva em PT-BR, com estrutura para apostila."),
+        HumanMessage(content=(
+            "Transforme o roteiro abaixo em uma versão final formatada:\n\n"
+            f"TEMA: {state.get('tema')}\n"
+            f"NÍVEL: {state.get('nivel')}\n\n"
+            f"ROTEIRO:\n{state.get('roteiro','')}\n\n"
+            "Inclua uma seção final: 'Erros comuns' com 3 itens."
+        ))
+    ])
+    return {"versao_final": resp.content}
+
+fb_builder = StateGraph(FeedbackState)
+fb_builder.add_node("planejar", node_planejar)
+fb_builder.add_node("feedback", node_pedir_feedback)
+fb_builder.add_node("finalizar", node_finalizar)
+
+fb_builder.add_edge(START, "planejar")
+fb_builder.add_edge("planejar", "feedback")
+fb_builder.add_edge("feedback", "finalizar")
+fb_builder.add_edge("finalizar", END)
+
+fb_checkpointer = MemorySaver()
+fb_graph = fb_builder.compile(checkpointer=fb_checkpointer)
+fb_graph
+#E1) Rodar até o feedback (interrupt)
+fb_config = {"configurable": {"thread_id": "fb-01"}}
+
+part = fb_graph.invoke({"tema": "Time travel no LangGraph", "nivel": "iniciante"}, config=fb_config)
+print("Payload do interrupt:")
+print(part.get("__interrupt__"))
+#E2) Retomar via resume (ex.: mudar para intermediário)
+final_fb = fb_graph.invoke(Command(resume="avançado"), config=fb_config)
+print("Nível final:", final_fb.get("nivel"))
+print(final_fb["versao_final"][:700], "...")
+#E3) Editar o estado via update_state e continuar
+fb_config2 = {"configurable": {"thread_id": "fb-02"}}
+
+# 1) para no feedback
+fb_graph.invoke({"tema": "Breakpoints dinâmicos", "nivel": "iniciante"}, config=fb_config2)
+
+# 2) mostra o estado atual
+state_now = fb_graph.get_state(fb_config2)
+print("Estado antes da edição:")
+print(state_now.values)
+
+# 3) atualiza o estado (correção humana)
+new_cfg = fb_graph.update_state(
+    fb_config2,
+    values={"nivel": "avançado", "tema": "Breakpoints dinâmicos (com casos reais)"}
+)
+
+print("\nConfig retornado por update_state:", new_cfg)
+
+# 4) continua a execução
+cfg_to_use = new_cfg if new_cfg is not None else fb_config2
+done = fb_graph.invoke(None, config=cfg_to_use)
+
+print("\nEstado final (amostra):")
+print("tema:", done.get("tema"))
+print("nivel:", done.get("nivel"))
+print(done.get("versao_final", "")[:600], "...")
+#Parte F — Time travel (viagem no tempo)
+#listar checkpoints;
+#voltar a um checkpoint antigo;
+#alterar o estado naquele ponto;
+#e continuar gerando um novo futuro (fork).
+class TravelState(TypedDict, total=False):
+    ideia: str
+    exemplo: str
+
+def node_ideia(state: TravelState) -> TravelState:
+    resp = llm.invoke([
+        SystemMessage(content="Responda em PT-BR, curto e claro."),
+        HumanMessage(content="Gere uma ideia de uso (1 frase) para usar LangGraph em uma Startup de IA.")
+    ])
+    return {"ideia": resp.content.strip()}
+
+def node_exemplo(state: TravelState) -> TravelState:
+    resp = llm.invoke([
+        SystemMessage(content="Responda em PT-BR, curto e claro."),
+        HumanMessage(content=(
+            "Crie um exemplo prático modelo de Startups de IA, de acordo com a ideia abaixo.\n"
+            f"IDEIA: {state.get('ideia','')}\n"
+            "Formato: 6-10 linhas, com bullets."
+        ))
+    ])
+    return {"exemplo": resp.content}
+
+travel_builder = StateGraph(TravelState)
+travel_builder.add_node("ideia", node_ideia)
+travel_builder.add_node("exemplo", node_exemplo)
+travel_builder.add_edge(START, "ideia")
+travel_builder.add_edge("ideia", "exemplo")
+travel_builder.add_edge("exemplo", END)
+
+travel_checkpointer = MemorySaver()
+travel_graph = travel_builder.compile(checkpointer=travel_checkpointer)
+travel_graph
+#F1) Execução normal
+t_cfg = {"configurable": {"thread_id": "travel-01"}}
+
+original = travel_graph.invoke({}, config=t_cfg)
+print("IDEIA ORIGINAL:", original.get("ideia"))
+print("\nEXEMPLO ORIGINAL:\n", original.get("exemplo"))
+history = list(travel_graph.get_state_history(t_cfg))
+print("Quantidade de checkpoints:", len(history))
+
+for i, st in enumerate(history[:6]):
+    checkpoint_id = st.config["configurable"].get("checkpoint_id")
+    print(f"{i}: next={st.next} | checkpoint_id={checkpoint_id} | keys={list(st.values.keys())}")
+#F3) Fork: alterando o passado e criando novo futuro
+#Dica: normalmente history[1] é um ponto anterior ao último nó (dependendo da versão).
+selected = history[1]  # ajuste se necessário
+print("Selecionado next:", selected.next)
+print("Values naquele ponto:", selected.values)
+
+new_config = travel_graph.update_state(
+    selected.config,
+    values={"ideia": "LIstar projetos reais de SLMs em Startups"}
+)
+
+cfg_to_use = new_config if new_config is not None else selected.config
+fork = travel_graph.invoke(None, config=cfg_to_use)
+
+print("\n--- FUTURO (FORK) ---")
+print("IDEIA:", fork.get("ideia"))
+print("EXEMPLO:\n", fork.get("exemplo"))
+import re
+
+PALAVRAS_CHAVE = {"Startups", "IA", "LAnggraph"}
+
+def node_pausa_condicional(state: DynBPState) -> DynBPState:
+    texto = state.get("texto", "")
+
+    if state.get("modo_debug"):
+        interrupt({
+            "motivo": "modo_debug ligado",
+            "amostra_texto": texto[:250],
+        })
+        return {}
+
+    palavras = set(re.findall(r"\w+", texto.casefold()))
+    encontradas = sorted(PALAVRAS_CHAVE & palavras)
+
+    if encontradas:
+        interrupt({
+            "motivo": "palavras-chave detectadas",
+            "palavras_encontradas": encontradas,
+            "amostra_texto": texto[:250],
+        })
+
+    return {}
+dyn_builder = StateGraph(DynBPState)
+dyn_builder.add_node("gerar_texto", node_gerar_texto)
+dyn_builder.add_node("pausa", node_pausa_condicional)
+dyn_builder.add_edge(START, "gerar_texto")
+dyn_builder.add_edge("gerar_texto", "pausa")
+dyn_builder.add_edge("pausa", END)
+
+dyn_checkpointer = MemorySaver()
+dyn_graph = dyn_builder.compile(checkpointer=dyn_checkpointer)
+dyn_graph
+cfg2 = {"configurable": {"thread_id": "dyn-02"}}
+res2 = dyn_graph.invoke({"tema": "Startups, IA, LAnggraph", "modo_debug": True}, config=cfg2)
+
+res2b = dyn_graph.invoke(Command(resume="seguir"), config=cfg2)
+print("Concluiu. Texto (amostra):")
+print(res2b["texto"][:350], "...")
+
+#graph printed
+
+fg2 = {"configurable": {"thread_id": "dyn-02"}}
+res2 = dyn_graph.invoke({"tema": "Startups, IA, LAnggraph", "modo_debug": True}, config=cfg2)
+
+res2b = dyn_graph.invoke(Command(resume="seguir"), config=cfg2)
+print("Concluiu. Texto (amostra):")
+print(res2b["texto"][:350], "...")
+
+#Concluiu. Texto (amostra):
+#Startups são empresas jovens e ágeis que buscam escalar rapidamente soluções inovadoras, geralmente apoiadas por investidores de risco.
+#Inteligência Artificial (IA) fornece as tecnologias de aprendizado de máquina e processamento de linguagem natural que permitem a automação
