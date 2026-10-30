@@ -1,1 +1,113 @@
+!pip install --upgrade transformers accelerate bitsandbytes datasets
 
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import LoraConfig, get_peft_model
+from datasets import load_dataset
+import os
+
+# Verificar GPU/CUDA available
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Usando o dispositivo: {device}')
+
+from transformers import AutoConfig
+
+# Definir a configuração de quantização
+quantization_config = BitsAndBytesConfig(
+    load_in_8bit=True,   # Usar quantização em 8 bits
+    llm_int8_threshold=6.0
+)
+
+# Carregar o modelo com quantização
+model_name = 'facebook/opt-350m'
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=quantization_config,
+    device_map='auto'
+)
+
+# Dados de exemplo
+data = [
+    {"text": "Olá, como vai você?"},
+    {"text": "O tempo hoje está ensolarado."},
+    {"text": "Estou aprendendo a usar QLoRA."},
+    {"text": "Este é um exemplo de fine-tuning."},
+    {"text": "Transformers são modelos poderosos."}
+]
+
+# Criar o dataset
+from datasets import Dataset
+
+dataset = Dataset.from_list(data)
+
+# Tokenizar o dataset
+def tokenize_function(examples):
+    return tokenizer(examples["text"], padding='max_length', truncation=True, max_length=64)
+
+tokenized_dataset = dataset.map(tokenize_function, batched=True)
+
+# Definir a configuração do LoRA
+peft_config = LoraConfig(
+    task_type="CAUSAL_LM",
+    inference_mode=False,
+    r=4,
+    lora_alpha=16,
+    lora_dropout=0.05,
+    target_modules=['q_proj', 'v_proj']  # Módulos alvo para o OPT
+)
+
+# Aplicar o LoRA ao modelo
+model = get_peft_model(model, peft_config)
+
+# Verificar os parâmetros treináveis
+model.print_trainable_parameters()
+
+from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
+
+# Data collator para processamento dos dados
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer, mlm=False
+)
+
+# Configurações de treinamento corrigidas
+training_args = TrainingArguments(
+    output_dir="./qlora-opt",
+    per_device_train_batch_size=1,
+    per_device_eval_batch_size=1,
+    num_train_epochs=3,
+    learning_rate=2e-4,
+    fp16=True,
+    eval_strategy="no",  # <-- Alterado de evaluation_strategy para eval_strategy
+    save_strategy="no",
+    logging_steps=10,
+)
+
+# Criar o Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_dataset,
+    data_collator=data_collator,
+)
+
+# Treinar o modelo
+trainer.train()
+
+prompt = "Estou aprendendo QLoRa"
+
+# Tokenizar o prompt
+inputs = tokenizer(prompt, return_tensors="pt").to(device)
+
+# Gerar texto com o modelo fine-tuned
+with torch.no_grad():
+    outputs = model.generate(
+        input_ids=inputs["input_ids"],
+        max_length=50,
+        num_return_sequences=1,
+        do_sample=True,
+        temperature=0.7,
+    )
+
+# Decodificar e imprimir o texto gerado
+generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+print(generated_text)
