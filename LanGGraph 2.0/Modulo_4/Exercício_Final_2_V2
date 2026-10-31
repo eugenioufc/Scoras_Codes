@@ -106,7 +106,7 @@ fb_checkpointer = MemorySaver()
 fb_graph = fb_builder.compile(checkpointer=fb_checkpointer)
 fb_graph
 #graph PRINTED
------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
 fb_config = {"configurable": {"thread_id": "fb-celulas-01"}}
 
 resultado = fb_graph.invoke(
