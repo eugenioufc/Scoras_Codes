@@ -10,15 +10,7 @@ print("✅ GROQ_API_KEY configurada!")
 ------------------------------------------------------------------------------
 #✅ GROQ_API_KEY configurada!
 
-#2) Imports
-#Groq SDK: streaming token a token.
-#ChatGroq (LangChain): integração com LangGraph.
-#LangGraph: grafos + checkpoints + interrupções.
-#Também usamos:
-
-#MemorySaver para checkpoints (necessário para breakpoints, interrupções e time travel);
-#interrupt e Command para pausar e retomar.
-
+-----------------------------------------------------------------------------------------------------------------
 from typing import TypedDict, Literal
 from groq import Groq
 from langchain_groq import ChatGroq
