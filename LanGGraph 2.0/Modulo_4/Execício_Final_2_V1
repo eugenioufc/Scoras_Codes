@@ -102,7 +102,7 @@ print(resultado["versao_final"])
 
 # Apostila – Computação Quântica (Nível Avançado)
 #print perfeito de apostila com display(Markdown)
---------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------
 #pergunta: Qual nível deseja? iniciante/intermediário/avançado. Deixe em branco para manter.
 #nivel_atual: iniciante
 #pergunta: Qual tema deseja? Deixe em branco para manter.
