@@ -95,9 +95,20 @@ while resultado.get("__interrupt__"):
         config=fb_config,
     )
 
-print("\nNível:", resultado["nivel"])
+#print("\nNível:", resultado["nivel"])
+#print("Tema:", resultado["tema"])
+#print(resultado["versao_final"])
+
+from IPython.display import clear_output, display, Markdown
+
+clear_output(wait=True)
+
+print("Nível:", resultado["nivel"])
 print("Tema:", resultado["tema"])
-print(resultado["versao_final"])
+
+display(Markdown(resultado["versao_final"]))
+# Apostila – Computação Quântica (Nível Avançado)
+#print perfeito de apostila com display(Markdown)
 --------------------------------------------------------------------------------------------------------------
 #pergunta: Qual nível deseja? iniciante/intermediário/avançado. Deixe em branco para manter.
 #nivel_atual: iniciante
