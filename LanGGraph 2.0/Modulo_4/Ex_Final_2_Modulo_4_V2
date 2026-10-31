@@ -156,4 +156,11 @@ else:
     print("Nível:", resultado["nivel"])
     print("Tema:", resultado["tema"])
     print(resultado["versao_final"])
-
+#Nível: avançado
+#Tema: Computação Quântica
+# Apostila de Computação Quântica – Nível Avançado
+#**Autor:** [Seu Nome] – Departamento de Física/Computação
+#**Data:** 2026‑10‑31
+# Sumário
+..............................................
+---------------------------------------------------------------
