@@ -73,7 +73,7 @@ fb_checkpointer = MemorySaver()
 fb_graph = fb_builder.compile(checkpointer=fb_checkpointer)
 fb_graph
 
------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------
 
 fb_config = {"configurable": {"thread_id": "fb-confirmacao-01"}}
 
